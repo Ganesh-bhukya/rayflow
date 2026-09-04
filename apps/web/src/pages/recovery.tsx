@@ -53,6 +53,10 @@ type IntelligenceDecision = {
   previousFailedAttempts: number;
   action: "RETRY" | "STOP" | "ESCALATE";
   confidence: number;
+  recoveryScore: number;
+  recoveryProbability: number;
+  expectedRecoveryAmount: number;
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
   automated: boolean;
   reason: string;
   signals: string[];
@@ -64,6 +68,8 @@ type IntelligenceResponse = {
     recoveryCases: number;
     revenueAtRisk: number;
     automatedRecoveryOpportunity: number;
+    projectedRecoveryOpportunity: number;
+    averageRecoveryProbability: number;
     escalationAmount: number;
     stoppedAmount: number;
     recoveredRevenue: number;
@@ -689,6 +695,11 @@ export default function Recovery() {
       ? decisions[0]
       : null;
 
+  const latestIntelligenceDecision =
+    intelligence?.currentDecisions?.length
+      ? intelligence.currentDecisions[0]
+      : null;
+
   const decisionStats = useMemo(() => {
     return {
       retry: decisions.filter(
@@ -965,6 +976,82 @@ export default function Recovery() {
             ))}
           </div>
 
+          {latestIntelligenceDecision && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gap: "10px",
+                marginBottom: "10px",
+              }}
+            >
+              {[
+                {
+                  label: "RECOVERY SCORE",
+                  value: `${latestIntelligenceDecision.recoveryScore}/100`,
+                  description: "Explainable recovery opportunity score",
+                },
+                {
+                  label: "RECOVERY PROBABILITY",
+                  value: `${Math.round(latestIntelligenceDecision.recoveryProbability * 100)}%`,
+                  description: "Estimated chance of successful recovery",
+                },
+                {
+                  label: "EXPECTED RECOVERY",
+                  value: formatMoney(
+                    latestIntelligenceDecision.expectedRecoveryAmount,
+                    latestIntelligenceDecision.currency,
+                  ),
+                  description: "Expected value from the recommended path",
+                },
+                {
+                  label: "RISK LEVEL",
+                  value: latestIntelligenceDecision.riskLevel,
+                  description: `Latest action: ${latestIntelligenceDecision.action}`,
+                },
+              ].map((metric) => (
+                <div
+                  key={metric.label}
+                  style={{
+                    padding: "13px",
+                    borderRadius: "10px",
+                    background: "#f8fafc",
+                    border: "1px solid #eef2f6",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      letterSpacing: "0.05em",
+                      color: "#667085",
+                    }}
+                  >
+                    {metric.label}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: "5px",
+                      fontSize: "18px",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {metric.value}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: "3px",
+                      fontSize: "10px",
+                      color: "#98a2b3",
+                    }}
+                  >
+                    {metric.description}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "10px" }}>
             <div style={{ padding: "14px", borderRadius: "10px", background: "#fafafa", border: "1px solid #eef2f6" }}>
               <div style={{ fontSize: "10px", fontWeight: 800, color: "#475467", letterSpacing: "0.05em", marginBottom: "9px" }}>AI ACTION BREAKDOWN</div>
@@ -999,6 +1086,53 @@ export default function Recovery() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: "10px",
+              marginTop: "10px",
+            }}
+          >
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "10px",
+                background: "#fafafa",
+                border: "1px solid #eef2f6",
+              }}
+            >
+              <div style={{ fontSize: "9px", fontWeight: 800, letterSpacing: "0.05em", color: "#667085" }}>
+                PROJECTED RECOVERY
+              </div>
+              <div style={{ marginTop: "4px", fontSize: "16px", fontWeight: 800 }}>
+                {formatMoney(intelligence.summary.projectedRecoveryOpportunity)}
+              </div>
+              <div style={{ marginTop: "2px", fontSize: "9px", color: "#98a2b3" }}>
+                Expected value from eligible automated retries
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "10px",
+                background: "#fafafa",
+                border: "1px solid #eef2f6",
+              }}
+            >
+              <div style={{ fontSize: "9px", fontWeight: 800, letterSpacing: "0.05em", color: "#667085" }}>
+                AVG RECOVERY PROBABILITY
+              </div>
+              <div style={{ marginTop: "4px", fontSize: "16px", fontWeight: 800 }}>
+                {Math.round(intelligence.summary.averageRecoveryProbability * 100)}%
+              </div>
+              <div style={{ marginTop: "2px", fontSize: "9px", color: "#98a2b3" }}>
+                Across current recovery candidates
+              </div>
             </div>
           </div>
 
