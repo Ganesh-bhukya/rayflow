@@ -91,6 +91,46 @@ type IntelligenceResponse = {
   }>;
 };
 
+
+type SimulationDecision = {
+  orderId: string;
+  attemptId: string;
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+  failureCode: string | null;
+  createdAt: string;
+  previousFailedAttempts: number;
+  action: "RETRY" | "STOP" | "ESCALATE";
+  confidence: number;
+  automated: boolean;
+  reason: string;
+  signals: string[];
+};
+
+type SimulationResponse = {
+  status: string;
+  simulation: {
+    simulatedAt: string;
+    readOnly: boolean;
+    executionPerformed: boolean;
+  };
+  summary: {
+    recoveryCases: number;
+    revenueAtRisk: number;
+    automatedRecoveryOpportunity: number;
+    stoppedAmount: number;
+    escalationAmount: number;
+    projectedRecoveryOpportunity: number;
+  };
+  actionBreakdown: Record<
+    "RETRY" | "STOP" | "ESCALATE",
+    { cases: number; amount: number }
+  >;
+  decisions: SimulationDecision[];
+};
+
+
 type RecoveryDecision = {
   orderId: string;
   attemptId: string;
@@ -422,6 +462,12 @@ export default function Recovery() {
   const [intelligence, setIntelligence] =
     useState<IntelligenceResponse | null>(null);
 
+  const [simulation, setSimulation] =
+    useState<SimulationResponse | null>(null);
+
+  const [simulating, setSimulating] =
+    useState(false);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -595,6 +641,46 @@ export default function Recovery() {
       );
     } finally {
       setRecovering(null);
+    }
+  };
+
+  const simulateRecovery = async () => {
+    try {
+      setSimulating(true);
+      setError("");
+
+      const response = await fetch(
+        `${API_URL}/recovery/simulate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const result =
+        (await response.json()) as SimulationResponse & {
+          message?: string;
+        };
+
+      if (!response.ok) {
+        throw new Error(
+          result.message ||
+            `Recovery simulation API returned ${response.status}`,
+        );
+      }
+
+      setSimulation(result);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to run recovery simulation.",
+      );
+    } finally {
+      setSimulating(false);
     }
   };
 
@@ -1666,6 +1752,423 @@ export default function Recovery() {
           </div>
         </div>
       )}
+
+      {/* RECOVERY SIMULATION */}
+      <div
+        style={{
+          marginBottom: "18px",
+          border: "1px solid #d9d6ff",
+          borderRadius: "14px",
+          background: "#ffffff",
+          padding: "18px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "16px",
+            marginBottom: "14px",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: "10px",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                color: "#635bff",
+              }}
+            >
+              RECOVERY SIMULATION
+            </div>
+
+            <h2
+              style={{
+                margin: "5px 0 3px",
+                fontSize: "18px",
+              }}
+            >
+              Simulate batch recovery
+            </h2>
+
+            <p
+              style={{
+                margin: 0,
+                fontSize: "12px",
+                color: "#667085",
+              }}
+            >
+              Preview bounded AI recovery actions across all current failed
+              payments before any recovery workflow is executed.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={simulateRecovery}
+            disabled={simulating}
+            style={{
+              border: "1px solid #635bff",
+              borderRadius: "8px",
+              background: simulating ? "#f2f4f7" : "#635bff",
+              color: simulating ? "#667085" : "#ffffff",
+              padding: "9px 13px",
+              fontSize: "11px",
+              fontWeight: 800,
+              cursor: simulating ? "not-allowed" : "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {simulating ? "Simulating..." : "Run simulation"}
+          </button>
+        </div>
+
+        <div
+          style={{
+            padding: "10px 12px",
+            borderRadius: "9px",
+            background: "#f8fafc",
+            border: "1px solid #eef2f6",
+            marginBottom: "12px",
+            fontSize: "10px",
+            color: "#475467",
+          }}
+        >
+          <strong>Read-only safety check:</strong>{" "}
+          Simulation evaluates current failed payments and does not change
+          payment state, create transactions, write recovery audit events, or
+          move money.
+        </div>
+
+        {!simulation ? (
+          <div
+            style={{
+              padding: "18px",
+              borderRadius: "10px",
+              background: "#fafafa",
+              border: "1px dashed #d0d5dd",
+              color: "#667085",
+              fontSize: "12px",
+              textAlign: "center",
+            }}
+          >
+            Run a simulation to preview the current recovery opportunity.
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                gap: "10px",
+                marginBottom: "12px",
+              }}
+            >
+              {[
+                {
+                  label: "REVENUE AT RISK",
+                  value: formatMoney(
+                    simulation.summary.revenueAtRisk,
+                  ),
+                },
+                {
+                  label: "PROJECTED RECOVERY",
+                  value: formatMoney(
+                    simulation.summary.projectedRecoveryOpportunity,
+                  ),
+                },
+                {
+                  label: "AUTO RECOVERY",
+                  value: formatMoney(
+                    simulation.summary.automatedRecoveryOpportunity,
+                  ),
+                },
+                {
+                  label: "PROTECTED / REVIEW",
+                  value: formatMoney(
+                    simulation.summary.stoppedAmount +
+                      simulation.summary.escalationAmount,
+                  ),
+                },
+              ].map((metric) => (
+                <div
+                  key={metric.label}
+                  style={{
+                    padding: "13px",
+                    borderRadius: "9px",
+                    background: "#f8fafc",
+                    border: "1px solid #eef2f6",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      letterSpacing: "0.05em",
+                      color: "#667085",
+                    }}
+                  >
+                    {metric.label}
+                  </div>
+                  <div
+                    style={{
+                      marginTop: "5px",
+                      fontSize: "18px",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {metric.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(3, minmax(0, 1fr))",
+                gap: "8px",
+                marginBottom: "12px",
+              }}
+            >
+              {(
+                [
+                  ["RETRY", "#087443", "#ecfdf3"],
+                  ["STOP", "#b54708", "#fff7ed"],
+                  ["REVIEW", "#175cd3", "#eff6ff"],
+                ] as const
+              ).map(([action, color, background]) => {
+                const key =
+                  action === "REVIEW"
+                    ? "ESCALATE"
+                    : action;
+                const item =
+                  simulation.actionBreakdown[key];
+
+                return (
+                  <div
+                    key={action}
+                    style={{
+                      padding: "11px",
+                      borderRadius: "9px",
+                      background,
+                      border: `1px solid ${background}`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "9px",
+                        fontWeight: 800,
+                        color,
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      {action}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "4px",
+                        fontSize: "16px",
+                        fontWeight: 800,
+                      }}
+                    >
+                      {item.cases}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "2px",
+                        fontSize: "9px",
+                        color: "#667085",
+                      }}
+                    >
+                      {formatMoney(item.amount)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div
+              style={{
+                fontSize: "10px",
+                color: "#98a2b3",
+                marginBottom: "8px",
+              }}
+            >
+              Simulated at{" "}
+              {formatDate(simulation.simulation.simulatedAt)}
+              {" · "}
+              {simulation.simulation.readOnly
+                ? "read-only"
+                : "execution mode"}
+              {" · "}
+              {simulation.simulation.executionPerformed
+                ? "execution performed"
+                : "no execution performed"}
+            </div>
+
+            {simulation.decisions.length > 0 && (
+              <div
+                style={{
+                  overflowX: "auto",
+                  border: "1px solid #eef2f6",
+                  borderRadius: "9px",
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "10px",
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      {[
+                        "ACTION",
+                        "PAYMENT",
+                        "FAILURE",
+                        "CONFIDENCE",
+                        "AMOUNT",
+                      ].map((heading) => (
+                        <th
+                          key={heading}
+                          style={{
+                            textAlign: "left",
+                            padding: "8px 9px",
+                            borderBottom:
+                              "1px solid #eaecf0",
+                            color: "#667085",
+                            fontSize: "8px",
+                            fontWeight: 800,
+                          }}
+                        >
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {simulation.decisions.map(
+                      (decision) => (
+                        <tr
+                          key={`${decision.orderId}:${decision.attemptId}`}
+                        >
+                          <td
+                            style={{
+                              padding: "9px",
+                              borderBottom:
+                                "1px solid #f2f4f7",
+                              fontWeight: 800,
+                              color:
+                                decision.action ===
+                                "RETRY"
+                                  ? "#087443"
+                                  : decision.action ===
+                                      "STOP"
+                                    ? "#b54708"
+                                    : "#175cd3",
+                            }}
+                          >
+                            {decision.action ===
+                            "ESCALATE"
+                              ? "REVIEW"
+                              : decision.action}
+                          </td>
+
+                          <td
+                            style={{
+                              padding: "9px",
+                              borderBottom:
+                                "1px solid #f2f4f7",
+                            }}
+                          >
+                            <div>
+                              {shortId(
+                                decision.attemptId,
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: "2px",
+                                color: "#98a2b3",
+                              }}
+                            >
+                              {shortId(
+                                decision.orderId,
+                              )}
+                            </div>
+                          </td>
+
+                          <td
+                            style={{
+                              padding: "9px",
+                              borderBottom:
+                                "1px solid #f2f4f7",
+                              color: "#667085",
+                            }}
+                          >
+                            {decision.failureCode ||
+                              "Unknown"}
+                          </td>
+
+                          <td
+                            style={{
+                              padding: "9px",
+                              borderBottom:
+                                "1px solid #f2f4f7",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {Math.round(
+                              decision.confidence *
+                                100,
+                            )}
+                            %
+                          </td>
+
+                          <td
+                            style={{
+                              padding: "9px",
+                              borderBottom:
+                                "1px solid #f2f4f7",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {formatMoney(
+                              decision.amount,
+                              decision.currency,
+                            )}
+                          </td>
+                        </tr>
+                      ),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {simulation.decisions.length === 0 && (
+              <div
+                style={{
+                  padding: "14px",
+                  borderRadius: "9px",
+                  background: "#ecfdf3",
+                  border: "1px solid #d1fadf",
+                  color: "#087443",
+                  fontSize: "11px",
+                }}
+              >
+                No active failed payments require recovery simulation.
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* RECOVERY OVERVIEW */}
       <div className="recovery-overview">
