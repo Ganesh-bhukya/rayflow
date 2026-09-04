@@ -182,17 +182,17 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         const orderResult = await client.query(`
-          SELECT
-            id,
-            amount,
-            currency,
-            status
+            SELECT
+              id,
+              amount,
+              currency,
+              status
 
-          FROM public.payment_orders
+            FROM public.payment_orders
 
-          WHERE id = $1
+            WHERE id = $1
 
-          FOR UPDATE
+            FOR UPDATE
           `, [orderId]);
         /*
          * Order does not exist.
@@ -222,23 +222,23 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         const attemptResult = await client.query(`
-          SELECT
-            id,
-            order_id,
-            payment_method,
-            status,
-            failure_code,
-            created_at
+            SELECT
+              id,
+              order_id,
+              payment_method,
+              status,
+              failure_code,
+              created_at
 
-          FROM public.payment_attempts
+            FROM public.payment_attempts
 
-          WHERE order_id = $1
+            WHERE order_id = $1
 
-          ORDER BY created_at DESC
+            ORDER BY created_at DESC
 
-          LIMIT 1
+            LIMIT 1
 
-          FOR UPDATE
+            FOR UPDATE
           `, [orderId]);
         /*
          * No attempt exists.
@@ -283,14 +283,14 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         const failedAttemptsResult = await client.query(`
-          SELECT
-            COUNT(*)::int AS failed_count
+            SELECT
+              COUNT(*)::int AS failed_count
 
-          FROM public.payment_attempts
+            FROM public.payment_attempts
 
-          WHERE
-            order_id = $1
-            AND status = 'failed'
+            WHERE
+              order_id = $1
+              AND status = 'failed'
           `, [orderId]);
         const totalFailedAttempts = Number(failedAttemptsResult
             .rows[0]
@@ -325,21 +325,21 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         await client.query(`
-        INSERT INTO public.audit_logs
-        (
-          action,
-          entity_type,
-          entity_id,
-          metadata
-        )
+          INSERT INTO public.audit_logs
+          (
+            action,
+            entity_type,
+            entity_id,
+            metadata
+          )
 
-        VALUES
-        (
-          $1,
-          $2,
-          $3,
-          $4
-        )
+          VALUES
+          (
+            $1,
+            $2,
+            $3,
+            $4
+          )
         `, [
             "recovery.decision",
             "payment_order",
@@ -433,12 +433,12 @@ router.post("/:orderId/complete", async (req, res) => {
          * Move the failed attempt into processing.
          */
         await client.query(`
-        UPDATE public.payment_attempts
+          UPDATE public.payment_attempts
 
-        SET
-          status = 'processing'
+          SET
+            status = 'processing'
 
-        WHERE id = $1
+          WHERE id = $1
         `, [attempt.id]);
         /*
          * ----------------------------------------------------
@@ -457,13 +457,13 @@ router.post("/:orderId/complete", async (req, res) => {
          */
         assertTransition("processing", "success");
         await client.query(`
-        UPDATE public.payment_attempts
+          UPDATE public.payment_attempts
 
-        SET
-          status = 'success',
-          failure_code = NULL
+          SET
+            status = 'success',
+            failure_code = NULL
 
-        WHERE id = $1
+          WHERE id = $1
         `, [attempt.id]);
         /*
          * ----------------------------------------------------
@@ -472,12 +472,12 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         await client.query(`
-        UPDATE public.payment_orders
+          UPDATE public.payment_orders
 
-        SET
-          status = 'paid'
+          SET
+            status = 'paid'
 
-        WHERE id = $1
+          WHERE id = $1
         `, [orderId]);
         /*
          * ----------------------------------------------------
@@ -486,21 +486,21 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         const existingTransactionResult = await client.query(`
-          SELECT
-            id,
-            order_id,
-            attempt_id,
-            amount,
-            currency,
-            type,
-            status,
-            created_at
+            SELECT
+              id,
+              order_id,
+              attempt_id,
+              amount,
+              currency,
+              type,
+              status,
+              created_at
 
-          FROM public.transactions
+            FROM public.transactions
 
-          WHERE attempt_id = $1
+            WHERE attempt_id = $1
 
-          LIMIT 1
+            LIMIT 1
           `, [attempt.id]);
         let finalTransactionId;
         /*
@@ -521,37 +521,37 @@ router.post("/:orderId/complete", async (req, res) => {
              */
             const transactionId = randomUUID();
             const transactionResult = await client.query(`
-            INSERT INTO public.transactions
-            (
-              id,
-              order_id,
-              attempt_id,
-              amount,
-              currency,
-              type,
-              status
-            )
+              INSERT INTO public.transactions
+              (
+                id,
+                order_id,
+                attempt_id,
+                amount,
+                currency,
+                type,
+                status
+              )
 
-            VALUES
-            (
-              $1,
-              $2,
-              $3,
-              $4,
-              $5,
-              'payment',
-              'success'
-            )
+              VALUES
+              (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                'payment',
+                'success'
+              )
 
-            ON CONFLICT (attempt_id)
-            DO UPDATE SET
-              order_id = EXCLUDED.order_id,
-              amount = EXCLUDED.amount,
-              currency = EXCLUDED.currency,
-              type = EXCLUDED.type,
-              status = EXCLUDED.status
+              ON CONFLICT (attempt_id)
+              DO UPDATE SET
+                order_id = EXCLUDED.order_id,
+                amount = EXCLUDED.amount,
+                currency = EXCLUDED.currency,
+                type = EXCLUDED.type,
+                status = EXCLUDED.status
 
-            RETURNING id
+              RETURNING id
             `, [
                 transactionId,
                 orderId,
@@ -572,21 +572,21 @@ router.post("/:orderId/complete", async (req, res) => {
          * ----------------------------------------------------
          */
         await client.query(`
-        INSERT INTO public.audit_logs
-        (
-          action,
-          entity_type,
-          entity_id,
-          metadata
-        )
+          INSERT INTO public.audit_logs
+          (
+            action,
+            entity_type,
+            entity_id,
+            metadata
+          )
 
-        VALUES
-        (
-          $1,
-          $2,
-          $3,
-          $4
-        )
+          VALUES
+          (
+            $1,
+            $2,
+            $3,
+            $4
+          )
         `, [
             "recovery.completed",
             "payment_order",
@@ -677,6 +677,294 @@ router.post("/:orderId/complete", async (req, res) => {
          * Always release the database connection.
          */
         client.release();
+    }
+});
+/*
+|--------------------------------------------------------------------------
+| GET /recovery/intelligence
+|--------------------------------------------------------------------------
+| Revenue Recovery Intelligence
+|
+| Read-only analytics layer built from:
+| - current failed payment attempts
+| - bounded recovery decision engine
+| - recovery audit events
+|
+| This endpoint does not execute recovery and does not write to the DB.
+|--------------------------------------------------------------------------
+*/
+router.get("/intelligence", async (_req, res) => {
+    const pool = getPool();
+    try {
+        /*
+         * 1. Get the latest failed attempt for every unpaid order.
+         *
+         * We also calculate the number of failed attempts for the
+         * order and subtract the current failed attempt. This gives
+         * the decision engine the actual number of previous failures.
+         *
+         * Example:
+         *
+         *   first failed attempt  -> previousFailedAttempts = 0
+         *   second failed attempt -> previousFailedAttempts = 1
+         *
+         * This keeps the intelligence endpoint consistent with the
+         * actual recovery execution policy.
+         */
+        const failedPaymentsResult = await pool.query(`
+      WITH attempt_history AS (
+        SELECT
+          pa.id AS attempt_id,
+          pa.order_id,
+          pa.payment_method,
+          pa.status,
+          pa.failure_code,
+          pa.created_at,
+
+          COUNT(*) FILTER (
+            WHERE pa.status = 'failed'
+          ) OVER (
+            PARTITION BY pa.order_id
+          ) AS total_failed_attempts,
+
+          ROW_NUMBER() OVER (
+            PARTITION BY pa.order_id
+            ORDER BY pa.created_at DESC
+          ) AS row_number
+
+        FROM public.payment_attempts pa
+      )
+
+      SELECT
+        ah.attempt_id,
+        ah.order_id,
+        ah.payment_method,
+        ah.status,
+        ah.failure_code,
+        ah.created_at,
+
+        GREATEST(
+          ah.total_failed_attempts - 1,
+          0
+        )::int AS previous_failed_attempts,
+
+        po.amount,
+        po.currency,
+        po.status AS order_status
+
+      FROM attempt_history ah
+
+      INNER JOIN public.payment_orders po
+        ON po.id = ah.order_id
+
+      WHERE
+        ah.row_number = 1
+        AND ah.status = 'failed'
+        AND po.status <> 'paid'
+
+      ORDER BY ah.created_at DESC
+    `);
+        /*
+         * 2. Convert each failed payment into a bounded AI recovery decision.
+         *
+         * We do not write these decisions to audit_logs because this endpoint
+         * is analytics-only. Actual recovery execution continues to create
+         * recovery.decision audit events in the execution route.
+         */
+        const decisions = failedPaymentsResult.rows.map((payment) => {
+            const previousFailedAttempts = Number(payment.previous_failed_attempts ?? 0);
+            const decision = decideRecoveryAction({
+                orderId: payment.order_id,
+                amount: Number(payment.amount),
+                currency: payment.currency,
+                paymentMethod: payment.payment_method,
+                failureCode: payment.failure_code,
+                previousFailedAttempts,
+            });
+            return {
+                orderId: payment.order_id,
+                attemptId: payment.attempt_id,
+                amount: Number(payment.amount),
+                currency: payment.currency,
+                paymentMethod: payment.payment_method,
+                failureCode: payment.failure_code,
+                createdAt: payment.created_at,
+                previousFailedAttempts,
+                action: decision.action,
+                confidence: decision.confidence,
+                automated: decision.automated,
+                reason: decision.reason,
+                signals: decision.signals,
+            };
+        });
+        /*
+         * 3. Aggregate the current recovery opportunity.
+         */
+        const actionSummary = {
+            RETRY: {
+                cases: 0,
+                amount: 0,
+            },
+            STOP: {
+                cases: 0,
+                amount: 0,
+            },
+            ESCALATE: {
+                cases: 0,
+                amount: 0,
+            },
+        };
+        for (const decision of decisions) {
+            actionSummary[decision.action].cases += 1;
+            actionSummary[decision.action].amount += decision.amount;
+        }
+        /*
+         * 4. Get completed recovery events.
+         *
+         * Recovery completion is linked to the order through entity_id.
+         * We deduplicate by order_id and keep the latest completion event.
+         */
+        const completedRecoveriesResult = await pool.query(`
+        WITH recovery_completions AS (
+          SELECT
+            id,
+            entity_id,
+            metadata,
+            created_at,
+
+            ROW_NUMBER() OVER (
+              PARTITION BY entity_id
+              ORDER BY created_at DESC
+            ) AS row_number
+
+          FROM public.audit_logs
+
+          WHERE
+            action = 'recovery.completed'
+            AND entity_type = 'payment_order'
+            AND entity_id IS NOT NULL
+        )
+
+        SELECT
+          id,
+          entity_id,
+          metadata,
+          created_at
+
+        FROM recovery_completions
+
+        WHERE row_number = 1
+
+        ORDER BY created_at DESC
+
+        LIMIT 100
+      `);
+        /*
+         * 5. Parse completed recovery metadata safely.
+         */
+        const completedRecoveries = completedRecoveriesResult.rows
+            .map((row) => {
+            let metadata = {};
+            try {
+                metadata =
+                    typeof row.metadata ===
+                        "string"
+                        ? JSON.parse(row.metadata)
+                        : row.metadata ?? {};
+            }
+            catch {
+                metadata = {};
+            }
+            return {
+                auditId: row.id,
+                orderId: row.entity_id,
+                amount: typeof metadata.amount ===
+                    "number"
+                    ? metadata.amount
+                    : Number(metadata.amount ?? 0),
+                currency: typeof metadata.currency ===
+                    "string"
+                    ? metadata.currency
+                    : null,
+                action: typeof metadata.action ===
+                    "string"
+                    ? metadata.action
+                    : null,
+                confidence: typeof metadata.confidence ===
+                    "number"
+                    ? metadata.confidence
+                    : Number(metadata.confidence ?? 0),
+                failureCode: typeof metadata.failureCode ===
+                    "string"
+                    ? metadata.failureCode
+                    : null,
+                createdAt: row.created_at,
+            };
+        })
+            .filter((recovery) => recovery.amount > 0);
+        /*
+         * 6. Recovery revenue metrics.
+         */
+        const recoveredRevenue = completedRecoveries.reduce((total, recovery) => total + recovery.amount, 0);
+        const recoveryCases = completedRecoveries.length;
+        const successfulRecoveryCases = completedRecoveries.filter((recovery) => recovery.action === "RETRY").length;
+        const recoverySuccessRate = recoveryCases > 0
+            ? Math.round((successfulRecoveryCases /
+                recoveryCases) *
+                100)
+            : 0;
+        const revenueAtRisk = decisions.reduce((total, decision) => total + decision.amount, 0);
+        const automatedRecoveryOpportunity = actionSummary.RETRY.amount;
+        const escalationAmount = actionSummary.ESCALATE.amount;
+        const stoppedAmount = actionSummary.STOP.amount;
+        /*
+         * 7. Failure reason distribution.
+         */
+        const failureReasons = {};
+        for (const decision of decisions) {
+            const reason = decision.failureCode ||
+                "UNKNOWN";
+            if (!failureReasons[reason]) {
+                failureReasons[reason] = {
+                    cases: 0,
+                    amount: 0,
+                };
+            }
+            failureReasons[reason].cases += 1;
+            failureReasons[reason].amount +=
+                decision.amount;
+        }
+        /*
+         * 8. Return a buildathon-friendly intelligence payload.
+         */
+        return res.json({
+            status: "ok",
+            summary: {
+                recoveryCases: decisions.length,
+                revenueAtRisk,
+                automatedRecoveryOpportunity,
+                escalationAmount,
+                stoppedAmount,
+                recoveredRevenue,
+                completedRecoveryCases: recoveryCases,
+                recoverySuccessRate,
+            },
+            actionBreakdown: {
+                RETRY: actionSummary.RETRY,
+                STOP: actionSummary.STOP,
+                ESCALATE: actionSummary.ESCALATE,
+            },
+            failureReasons,
+            currentDecisions: decisions.slice(0, 20),
+            recentRecoveries: completedRecoveries.slice(0, 20),
+        });
+    }
+    catch (error) {
+        console.error("Failed to build recovery intelligence:", error);
+        return res.status(500).json({
+            status: "error",
+            error: "Failed to build recovery intelligence",
+        });
     }
 });
 export default router;

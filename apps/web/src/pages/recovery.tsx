@@ -42,6 +42,55 @@ type AuditResponse = {
   auditLogs: AuditLog[];
 };
 
+type IntelligenceDecision = {
+  orderId: string;
+  attemptId: string;
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+  failureCode: string | null;
+  createdAt: string;
+  previousFailedAttempts: number;
+  action: "RETRY" | "STOP" | "ESCALATE";
+  confidence: number;
+  automated: boolean;
+  reason: string;
+  signals: string[];
+};
+
+type IntelligenceResponse = {
+  status: string;
+  summary: {
+    recoveryCases: number;
+    revenueAtRisk: number;
+    automatedRecoveryOpportunity: number;
+    escalationAmount: number;
+    stoppedAmount: number;
+    recoveredRevenue: number;
+    completedRecoveryCases: number;
+    recoverySuccessRate: number;
+  };
+  actionBreakdown: Record<
+    "RETRY" | "STOP" | "ESCALATE",
+    { cases: number; amount: number }
+  >;
+  failureReasons: Record<
+    string,
+    { cases: number; amount: number }
+  >;
+  currentDecisions: IntelligenceDecision[];
+  recentRecoveries: Array<{
+    auditId: string;
+    orderId: string;
+    amount: number;
+    currency: string;
+    action: "RETRY" | "STOP" | "ESCALATE";
+    confidence: number;
+    failureCode: string | null;
+    createdAt: string;
+  }>;
+};
+
 type RecoveryDecision = {
   orderId: string;
   attemptId: string;
@@ -370,6 +419,9 @@ export default function Recovery() {
   const [decisions, setDecisions] =
     useState<RecoveryDecision[]>([]);
 
+  const [intelligence, setIntelligence] =
+    useState<IntelligenceResponse | null>(null);
+
   const [loading, setLoading] =
     useState(true);
 
@@ -403,9 +455,11 @@ export default function Recovery() {
       const [
         recoveryResponse,
         auditResponse,
+        intelligenceResponse,
       ] = await Promise.all([
         fetch(`${API_URL}/recovery`),
         fetch(`${API_URL}/audit-logs`),
+        fetch(`${API_URL}/recovery/intelligence`),
       ]);
 
       if (!recoveryResponse.ok) {
@@ -420,13 +474,23 @@ export default function Recovery() {
         );
       }
 
+      if (!intelligenceResponse.ok) {
+        throw new Error(
+          `Recovery intelligence API returned ${intelligenceResponse.status}`,
+        );
+      }
+
       const result =
         (await recoveryResponse.json()) as RecoveryResponse;
 
       const auditResult =
         (await auditResponse.json()) as AuditResponse;
 
+      const intelligenceResult =
+        (await intelligenceResponse.json()) as IntelligenceResponse;
+
       setData(result);
+      setIntelligence(intelligenceResult);
 
       const parsedDecisions =
         auditResult.auditLogs
@@ -763,6 +827,112 @@ export default function Recovery() {
           </div>
         </div>
       </div>
+
+      {/* RECOVERY INTELLIGENCE CENTER */}
+      {intelligence && (
+        <div
+          style={{
+            marginBottom: "18px",
+            border: "1px solid #e4e7ec",
+            borderRadius: "14px",
+            background: "#ffffff",
+            padding: "18px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "16px",
+              marginBottom: "16px",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "0.08em", color: "#635bff" }}>
+                RECOVERY INTELLIGENCE CENTER
+              </div>
+              <h2 style={{ margin: "5px 0 3px", fontSize: "18px" }}>
+                Revenue recovery control plane
+              </h2>
+              <p style={{ margin: 0, fontSize: "12px", color: "#667085" }}>
+                Current exposure, bounded AI actions, and measurable recovery outcomes.
+              </p>
+            </div>
+            <span style={{ padding: "6px 9px", borderRadius: "999px", background: "#f2f4f7", color: "#475467", fontSize: "10px", fontWeight: 700, whiteSpace: "nowrap" }}>
+              {intelligence.summary.recoveryCases} active case{intelligence.summary.recoveryCases === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "10px", marginBottom: "14px" }}>
+            {[
+              { label: "REVENUE AT RISK", value: formatMoney(intelligence.summary.revenueAtRisk), description: "Current failed-payment exposure" },
+              { label: "AUTO RECOVERY", value: formatMoney(intelligence.summary.automatedRecoveryOpportunity), description: "Eligible for bounded retry" },
+              { label: "STOPPED", value: formatMoney(intelligence.summary.stoppedAmount), description: "Protected by recovery policy" },
+              { label: "RECOVERY SUCCESS", value: `${intelligence.summary.recoverySuccessRate}%`, description: `${intelligence.summary.completedRecoveryCases} completed case${intelligence.summary.completedRecoveryCases === 1 ? "" : "s"}` },
+            ].map((metric) => (
+              <div key={metric.label} style={{ padding: "14px", borderRadius: "10px", background: "#f8fafc", border: "1px solid #eef2f6" }}>
+                <div style={{ fontSize: "9px", fontWeight: 800, letterSpacing: "0.05em", color: "#667085" }}>{metric.label}</div>
+                <div style={{ marginTop: "6px", fontSize: "20px", fontWeight: 800 }}>{metric.value}</div>
+                <div style={{ marginTop: "3px", fontSize: "10px", color: "#98a2b3" }}>{metric.description}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "10px" }}>
+            <div style={{ padding: "14px", borderRadius: "10px", background: "#fafafa", border: "1px solid #eef2f6" }}>
+              <div style={{ fontSize: "10px", fontWeight: 800, color: "#475467", letterSpacing: "0.05em", marginBottom: "9px" }}>AI ACTION BREAKDOWN</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "8px" }}>
+                {(["RETRY", "STOP", "ESCALATE"] as const).map((action) => {
+                  const item = intelligence.actionBreakdown[action];
+                  return (
+                    <div key={action} style={{ padding: "10px", borderRadius: "8px", background: "#ffffff", border: "1px solid #eef2f6" }}>
+                      <div style={{ fontSize: "10px", fontWeight: 800, color: action === "RETRY" ? "#087443" : action === "STOP" ? "#b54708" : "#175cd3" }}>{action === "ESCALATE" ? "REVIEW" : action}</div>
+                      <div style={{ marginTop: "4px", fontSize: "16px", fontWeight: 800 }}>{item.cases}</div>
+                      <div style={{ marginTop: "2px", fontSize: "9px", color: "#98a2b3" }}>{formatMoney(item.amount)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ padding: "14px", borderRadius: "10px", background: "#fafafa", border: "1px solid #eef2f6" }}>
+              <div style={{ fontSize: "10px", fontWeight: 800, color: "#475467", letterSpacing: "0.05em", marginBottom: "9px" }}>FAILURE PATTERNS</div>
+              {Object.keys(intelligence.failureReasons).length === 0 ? (
+                <div style={{ fontSize: "11px", color: "#98a2b3" }}>No active failure patterns.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
+                  {Object.entries(intelligence.failureReasons).slice(0, 4).map(([reason, item]) => (
+                    <div key={reason} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <div>
+                        <div style={{ fontSize: "11px", fontWeight: 700 }}>{reason}</div>
+                        <div style={{ fontSize: "9px", color: "#98a2b3" }}>{item.cases} case{item.cases === 1 ? "" : "s"}</div>
+                      </div>
+                      <strong style={{ fontSize: "11px" }}>{formatMoney(item.amount)}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {intelligence.recentRecoveries.length > 0 && (
+            <div style={{ marginTop: "10px", padding: "12px 14px", borderRadius: "10px", background: "#ecfdf3", border: "1px solid #d1fadf" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+                <div>
+                  <div style={{ fontSize: "10px", fontWeight: 800, color: "#087443", letterSpacing: "0.05em" }}>RECENT RECOVERY OUTCOME</div>
+                  <div style={{ marginTop: "4px", fontSize: "12px", color: "#344054" }}>
+                    {intelligence.recentRecoveries.length} completed recovery case{intelligence.recentRecoveries.length === 1 ? "" : "s"} recorded with an auditable decision trail.
+                  </div>
+                </div>
+                <strong style={{ fontSize: "15px", color: "#087443", whiteSpace: "nowrap" }}>
+                  {formatMoney(intelligence.recentRecoveries.reduce((total, recovery) => total + recovery.amount, 0))}
+                </strong>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* AI DECISION ENGINE */}
       <div
