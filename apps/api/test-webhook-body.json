@@ -1,0 +1,1 @@
+{"event":"refund.created","payload":{"refund":{"entity":{"id":"rfp_test_rayflow_created_001","amount":10000,"currency":"INR","status":"created","payment_id":"pay_test_rayflow_created_001","notes":{"rayflowRefundId":"ef07f000-b765-4773-879b-256e508ab8d2"},"speed_processed":"normal","speed_requested":"normal"}}}}

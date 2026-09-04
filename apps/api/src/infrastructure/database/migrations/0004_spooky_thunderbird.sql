@@ -1,0 +1,2 @@
+ALTER TABLE "payment_orders" ADD COLUMN "razorpay_order_id" varchar(100);--> statement-breakpoint
+CREATE INDEX "payment_orders_razorpay_order_id_idx" ON "payment_orders" USING btree ("razorpay_order_id");
