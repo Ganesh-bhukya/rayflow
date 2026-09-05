@@ -57,6 +57,14 @@ type IntelligenceDecision = {
   recoveryProbability: number;
   expectedRecoveryAmount: number;
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  recoveryStrategy:
+    | "IMMEDIATE_RETRY"
+    | "STOP_RECOVERY"
+    | "MANUAL_REVIEW";
+  recoveryPriority:
+    | "HIGH"
+    | "MEDIUM"
+    | "LOW";
   automated: boolean;
   reason: string;
   signals: string[];
@@ -1388,6 +1396,78 @@ export default function Recovery() {
                   latestDecision.reason
                 }
               </p>
+
+              {latestIntelligenceDecision && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    flexWrap: "wrap",
+                    marginBottom: "10px",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "7px 9px",
+                      borderRadius: "7px",
+                      background: "#f5f3ff",
+                      border: "1px solid #e9dfff",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "8px",
+                        fontWeight: 800,
+                        color: "#667085",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      RECOVERY STRATEGY
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "2px",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        color: "#53389e",
+                      }}
+                    >
+                      {latestIntelligenceDecision.recoveryStrategy
+                        .replaceAll("_", " ")}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: "7px 9px",
+                      borderRadius: "7px",
+                      background: "#f8fafc",
+                      border: "1px solid #e4e7ec",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "8px",
+                        fontWeight: 800,
+                        color: "#667085",
+                        letterSpacing: "0.05em",
+                      }}
+                    >
+                      RECOVERY PRIORITY
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "2px",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        color: "#344054",
+                      }}
+                    >
+                      {latestIntelligenceDecision.recoveryPriority}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div
                 style={{

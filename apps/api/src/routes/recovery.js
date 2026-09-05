@@ -349,6 +349,12 @@ router.post("/:orderId/complete", async (req, res) => {
                 attemptId: attempt.id,
                 action: decision.action,
                 confidence: decision.confidence,
+                recoveryScore: decision.recoveryScore,
+                recoveryProbability: decision.recoveryProbability,
+                expectedRecoveryAmount: decision.expectedRecoveryAmount,
+                riskLevel: decision.riskLevel,
+                recoveryStrategy: decision.recoveryStrategy,
+                recoveryPriority: decision.recoveryPriority,
                 automated: decision.automated,
                 reason: decision.reason,
                 signals: decision.signals,
@@ -380,6 +386,12 @@ router.post("/:orderId/complete", async (req, res) => {
                 decision: {
                     action: decision.action,
                     confidence: decision.confidence,
+                    recoveryScore: decision.recoveryScore,
+                    recoveryProbability: decision.recoveryProbability,
+                    expectedRecoveryAmount: decision.expectedRecoveryAmount,
+                    riskLevel: decision.riskLevel,
+                    recoveryStrategy: decision.recoveryStrategy,
+                    recoveryPriority: decision.recoveryPriority,
                     automated: decision.automated,
                     reason: decision.reason,
                     signals: decision.signals,
@@ -597,6 +609,12 @@ router.post("/:orderId/complete", async (req, res) => {
                 transactionId: finalTransactionId,
                 action: decision.action,
                 confidence: decision.confidence,
+                recoveryScore: decision.recoveryScore,
+                recoveryProbability: decision.recoveryProbability,
+                expectedRecoveryAmount: decision.expectedRecoveryAmount,
+                riskLevel: decision.riskLevel,
+                recoveryStrategy: decision.recoveryStrategy,
+                recoveryPriority: decision.recoveryPriority,
                 previousStatus: "failed",
                 currentStatus: "success",
                 amount: Number(order.amount),
@@ -626,6 +644,12 @@ router.post("/:orderId/complete", async (req, res) => {
             decision: {
                 action: decision.action,
                 confidence: decision.confidence,
+                recoveryScore: decision.recoveryScore,
+                recoveryProbability: decision.recoveryProbability,
+                expectedRecoveryAmount: decision.expectedRecoveryAmount,
+                riskLevel: decision.riskLevel,
+                recoveryStrategy: decision.recoveryStrategy,
+                recoveryPriority: decision.recoveryPriority,
                 automated: decision.automated,
                 reason: decision.reason,
                 signals: decision.signals,
@@ -792,6 +816,12 @@ router.get("/intelligence", async (_req, res) => {
                 previousFailedAttempts,
                 action: decision.action,
                 confidence: decision.confidence,
+                recoveryScore: decision.recoveryScore,
+                recoveryProbability: decision.recoveryProbability,
+                expectedRecoveryAmount: decision.expectedRecoveryAmount,
+                riskLevel: decision.riskLevel,
+                recoveryStrategy: decision.recoveryStrategy,
+                recoveryPriority: decision.recoveryPriority,
                 automated: decision.automated,
                 reason: decision.reason,
                 signals: decision.signals,
@@ -890,6 +920,14 @@ router.get("/intelligence", async (_req, res) => {
                     "string"
                     ? metadata.action
                     : null,
+                recoveryStrategy: typeof metadata.recoveryStrategy ===
+                    "string"
+                    ? metadata.recoveryStrategy
+                    : null,
+                recoveryPriority: typeof metadata.recoveryPriority ===
+                    "string"
+                    ? metadata.recoveryPriority
+                    : null,
                 confidence: typeof metadata.confidence ===
                     "number"
                     ? metadata.confidence
@@ -915,6 +953,12 @@ router.get("/intelligence", async (_req, res) => {
             : 0;
         const revenueAtRisk = decisions.reduce((total, decision) => total + decision.amount, 0);
         const automatedRecoveryOpportunity = actionSummary.RETRY.amount;
+        // Projected recovery is based only on decisions that are
+        // actually eligible for automated retry. This avoids presenting
+        // STOP/ESCALATE cases as recoverable revenue.
+        const projectedRecoveryOpportunity = decisions
+            .filter((decision) => decision.action === "RETRY")
+            .reduce((total, decision) => total + decision.expectedRecoveryAmount, 0);
         const escalationAmount = actionSummary.ESCALATE.amount;
         const stoppedAmount = actionSummary.STOP.amount;
         /*
@@ -934,6 +978,9 @@ router.get("/intelligence", async (_req, res) => {
             failureReasons[reason].amount +=
                 decision.amount;
         }
+        const averageRecoveryProbability = decisions.length > 0
+            ? Number((decisions.reduce((total, decision) => total + decision.recoveryProbability, 0) / decisions.length).toFixed(4))
+            : 0;
         /*
          * 8. Return a buildathon-friendly intelligence payload.
          */
@@ -943,6 +990,8 @@ router.get("/intelligence", async (_req, res) => {
                 recoveryCases: decisions.length,
                 revenueAtRisk,
                 automatedRecoveryOpportunity,
+                projectedRecoveryOpportunity,
+                averageRecoveryProbability,
                 escalationAmount,
                 stoppedAmount,
                 recoveredRevenue,

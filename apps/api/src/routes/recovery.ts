@@ -528,6 +528,12 @@ router.post(
             riskLevel:
               decision.riskLevel,
 
+            recoveryStrategy:
+              decision.recoveryStrategy,
+
+            recoveryPriority:
+              decision.recoveryPriority,
+
             automated:
               decision.automated,
 
@@ -581,6 +587,24 @@ router.post(
 
             confidence:
               decision.confidence,
+
+            recoveryScore:
+              decision.recoveryScore,
+
+            recoveryProbability:
+              decision.recoveryProbability,
+
+            expectedRecoveryAmount:
+              decision.expectedRecoveryAmount,
+
+            riskLevel:
+              decision.riskLevel,
+
+            recoveryStrategy:
+              decision.recoveryStrategy,
+
+            recoveryPriority:
+              decision.recoveryPriority,
 
             automated:
               decision.automated,
@@ -897,6 +921,12 @@ router.post(
             riskLevel:
               decision.riskLevel,
 
+            recoveryStrategy:
+              decision.recoveryStrategy,
+
+            recoveryPriority:
+              decision.recoveryPriority,
+
             previousStatus:
               "failed",
 
@@ -965,6 +995,12 @@ router.post(
 
           riskLevel:
             decision.riskLevel,
+
+          recoveryStrategy:
+            decision.recoveryStrategy,
+
+          recoveryPriority:
+            decision.recoveryPriority,
 
           automated:
             decision.automated,
@@ -1223,6 +1259,12 @@ router.get("/intelligence", async (_req, res) => {
           riskLevel:
             decision.riskLevel,
 
+          recoveryStrategy:
+            decision.recoveryStrategy,
+
+          recoveryPriority:
+            decision.recoveryPriority,
+
           automated:
             decision.automated,
 
@@ -1362,6 +1404,18 @@ router.get("/intelligence", async (_req, res) => {
               typeof metadata.action ===
               "string"
                 ? metadata.action
+                : null,
+
+            recoveryStrategy:
+              typeof metadata.recoveryStrategy ===
+              "string"
+                ? metadata.recoveryStrategy
+                : null,
+
+            recoveryPriority:
+              typeof metadata.recoveryPriority ===
+              "string"
+                ? metadata.recoveryPriority
                 : null,
 
             confidence:

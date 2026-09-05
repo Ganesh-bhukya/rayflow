@@ -1,12 +1,14 @@
 /**
- * RayFlow Recovery Decision Engine
+ * RayFlow Recovery Intelligence 2.0
  *
  * Responsibility:
  * - Analyze a failed payment
  * - Calculate an explainable recovery score
  * - Estimate recovery probability
  * - Estimate expected recoverable revenue
- * - Determine the safest recovery action
+ * - Assess recovery risk
+ * - Select a bounded recovery strategy
+ * - Prioritize recovery opportunities
  * - Explain the decision
  *
  * IMPORTANT:
@@ -16,14 +18,13 @@
  * - change payment state
  * - execute a retry
  *
- * It only produces a bounded, explainable recovery decision.
+ * The engine only produces bounded decision intelligence.
  *
  * The payment state machine and recovery executor remain
- * responsible for validating and executing the decision.
+ * responsible for validating and executing any action.
  *
- * The scoring model is intentionally deterministic and
- * explainable. It provides decision intelligence without
- * allowing an AI model to directly control money movement.
+ * The scoring model is deterministic and explainable.
+ * It is not presented as a trained ML probability model.
  */
 
 export type RecoveryAction =
@@ -36,93 +37,83 @@ export type RecoveryRiskLevel =
   | "MEDIUM"
   | "HIGH";
 
+export type RecoveryStrategy =
+  | "IMMEDIATE_RETRY"
+  | "STOP_RECOVERY"
+  | "MANUAL_REVIEW";
+
+export type RecoveryPriority =
+  | "HIGH"
+  | "MEDIUM"
+  | "LOW";
+
 export type RecoveryDecisionInput = {
   orderId: string;
   amount: number;
   currency: string;
   paymentMethod: string;
   failureCode?: string | null;
-
-  /**
-   * Number of previous failed recovery/payment attempts.
-   *
-   * Example:
-   * 0 = first failure
-   * 1 = one previous failed attempt
-   * 2 = two previous failed attempts
-   */
   previousFailedAttempts?: number;
 };
 
 export type RecoveryDecision = {
   action: RecoveryAction;
-
-  /**
-   * Confidence represents how strongly RayFlow
-   * supports the selected action.
-   *
-   * Range: 0 to 1.
-   */
   confidence: number;
 
   /**
-   * Explainable recovery score.
+   * Explainable recovery opportunity score.
    *
    * Range: 0 to 100.
-   *
-   * Higher score means a stronger recovery opportunity.
    */
   recoveryScore: number;
 
   /**
-   * Estimated probability that the payment can
-   * be recovered through the recommended recovery path.
+   * Estimated recovery probability derived transparently
+   * from the recovery score.
    *
    * Range: 0 to 1.
    */
   recoveryProbability: number;
 
   /**
-   * Expected recoverable amount in the same
-   * smallest-currency-unit representation as input.amount.
-   *
-   * Example:
-   * amount = 500 and probability = 0.80
-   * expectedRecoveryAmount = 400
+   * Expected recoverable amount in the same smallest
+   * currency unit used by input.amount.
    */
   expectedRecoveryAmount: number;
 
   /**
-   * Risk classification for the recommended action.
+   * Risk associated with the recommended recovery path.
    */
   riskLevel: RecoveryRiskLevel;
 
   /**
-   * Human-readable explanation suitable for:
-   * - dashboard
-   * - audit logs
-   * - buildathon demo
+   * Recommended recovery strategy.
+   */
+  recoveryStrategy: RecoveryStrategy;
+
+  /**
+   * Business priority of the recovery opportunity.
+   */
+  recoveryPriority: RecoveryPriority;
+
+  /**
+   * Human-readable explanation.
    */
   reason: string;
 
   /**
-   * Signals used to reach the decision.
+   * Signals used by the decision engine.
    */
   signals: string[];
 
   /**
-   * Whether the decision is allowed to trigger
-   * an automated retry.
+   * Whether automated retry execution is allowed.
    */
   automated: boolean;
 };
 
 /**
- * Failure codes that generally indicate the payment
- * should not be blindly retried.
- *
- * These represent conditions where another immediate
- * attempt is unlikely to solve the underlying problem.
+ * Failures where an immediate retry is generally not useful.
  */
 const STOP_FAILURE_CODES = new Set([
   "INSUFFICIENT_FUNDS",
@@ -135,8 +126,8 @@ const STOP_FAILURE_CODES = new Set([
 ]);
 
 /**
- * Failure codes where another attempt may reasonably
- * succeed because the failure can be temporary.
+ * Failures where a temporary provider/network condition
+ * means another bounded attempt may succeed.
  */
 const RETRYABLE_FAILURE_CODES = new Set([
   "TIMEOUT",
@@ -150,25 +141,29 @@ const RETRYABLE_FAILURE_CODES = new Set([
 /**
  * Maximum number of automated recovery retries.
  *
- * This is a deliberate safety boundary.
- *
+ * Safety boundary:
  * RayFlow must never retry indefinitely.
  */
 const MAX_AUTOMATED_RETRIES = 1;
 
 /**
- * Base recovery scores.
- *
- * These are explainable policy weights rather than
- * opaque model outputs.
+ * Base explainable scoring weights.
  */
 const RETRYABLE_BASE_SCORE = 82;
 const STOP_BASE_SCORE = 8;
 const UNKNOWN_BASE_SCORE = 45;
 
 /**
- * Normalize failure codes so the decision engine
- * behaves consistently with provider-specific casing.
+ * Amount thresholds are intentionally used only for
+ * prioritization, never to override safety decisions.
+ *
+ * Amount is assumed to be in the smallest currency unit.
+ */
+const HIGH_VALUE_AMOUNT = 10000;
+const MEDIUM_VALUE_AMOUNT = 2500;
+
+/**
+ * Normalize provider failure codes.
  */
 function normalizeFailureCode(
   failureCode?: string | null,
@@ -179,7 +174,7 @@ function normalizeFailureCode(
 }
 
 /**
- * Clamp a number to the supplied range.
+ * Clamp a number to a supplied range.
  */
 function clamp(
   value: number,
@@ -193,7 +188,7 @@ function clamp(
 }
 
 /**
- * Clamp confidence to the valid range [0, 1].
+ * Clamp confidence to [0, 1].
  */
 function clampConfidence(
   value: number,
@@ -202,12 +197,11 @@ function clampConfidence(
 }
 
 /**
- * Convert a recovery score into a probability.
+ * Convert recovery score into a transparent opportunity
+ * probability estimate.
  *
- * The conversion is intentionally transparent rather than
- * pretending that this is a statistically trained probability
- * model. The score represents RayFlow's explainable recovery
- * opportunity estimate.
+ * This is an explainable score conversion, not a trained
+ * statistical probability model.
  */
 function scoreToProbability(
   score: number,
@@ -218,8 +212,7 @@ function scoreToProbability(
 }
 
 /**
- * Calculate expected recovery using the same amount unit
- * supplied by the caller.
+ * Calculate expected recovery amount.
  */
 function calculateExpectedRecovery(
   amount: number,
@@ -231,8 +224,7 @@ function calculateExpectedRecovery(
 }
 
 /**
- * Determine the risk level associated with the
- * recovery recommendation.
+ * Determine risk from the selected action and score.
  */
 function getRiskLevel(
   action: RecoveryAction,
@@ -258,11 +250,78 @@ function getRiskLevel(
 }
 
 /**
- * Apply attempt-history adjustments.
+ * Determine recovery strategy.
  *
- * A first failure is generally a stronger recovery opportunity.
- * Previous failed attempts reduce confidence because repeatedly
- * retrying the same payment provides diminishing recovery value.
+ * Strategy is intentionally narrower than action:
+ *
+ * RETRY     -> IMMEDIATE_RETRY
+ * STOP      -> STOP_RECOVERY
+ * ESCALATE  -> MANUAL_REVIEW
+ */
+function getRecoveryStrategy(
+  action: RecoveryAction,
+): RecoveryStrategy {
+  switch (action) {
+    case "RETRY":
+      return "IMMEDIATE_RETRY";
+
+    case "STOP":
+      return "STOP_RECOVERY";
+
+    case "ESCALATE":
+    default:
+      return "MANUAL_REVIEW";
+  }
+}
+
+/**
+ * Determine business priority.
+ *
+ * Priority is based on recovery opportunity and value,
+ * but it NEVER overrides safety policy.
+ */
+function getRecoveryPriority(
+  action: RecoveryAction,
+  recoveryScore: number,
+  expectedRecoveryAmount: number,
+  amount: number,
+): RecoveryPriority {
+  if (action === "STOP") {
+    return "LOW";
+  }
+
+  if (action === "ESCALATE") {
+    if (
+      recoveryScore >= 50 &&
+      expectedRecoveryAmount >= MEDIUM_VALUE_AMOUNT
+    ) {
+      return "HIGH";
+    }
+
+    return "MEDIUM";
+  }
+
+  if (
+    recoveryScore >= 80 &&
+    expectedRecoveryAmount >= MEDIUM_VALUE_AMOUNT
+  ) {
+    return "HIGH";
+  }
+
+  if (
+    recoveryScore >= 65 ||
+    amount >= HIGH_VALUE_AMOUNT
+  ) {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+}
+
+/**
+ * Apply attempt-history intelligence.
+ *
+ * Recovery opportunity decreases as repeated failures accumulate.
  */
 function applyAttemptHistoryAdjustment(
   score: number,
@@ -305,8 +364,8 @@ function applyAttemptHistoryAdjustment(
 /**
  * Apply payment-method context.
  *
- * This is deliberately a modest signal. Payment method alone
- * must never override a safety-critical failure classification.
+ * Payment method is deliberately a modest signal.
+ * It can never override a safety-critical failure.
  */
 function applyPaymentMethodAdjustment(
   score: number,
@@ -335,19 +394,79 @@ function applyPaymentMethodAdjustment(
 }
 
 /**
- * Main recovery decision function.
+ * Apply transaction-value intelligence.
  *
- * Decision priority:
+ * Higher-value transactions receive a small opportunity
+ * adjustment because recovering them has greater business value.
  *
- * 1. Invalid/unsafe input -> ESCALATE
+ * This does NOT change safety-critical STOP decisions.
+ */
+function applyAmountAdjustment(
+  score: number,
+  amount: number,
+  signals: string[],
+): number {
+  if (amount >= HIGH_VALUE_AMOUNT) {
+    signals.push(
+      "High-value payment increases recovery opportunity priority",
+    );
+
+    return score + 4;
+  }
+
+  if (amount >= MEDIUM_VALUE_AMOUNT) {
+    signals.push(
+      "Medium-value payment receives a modest recovery-value adjustment",
+    );
+
+    return score + 2;
+  }
+
+  signals.push(
+    "Payment value does not materially increase recovery score",
+  );
+
+  return score;
+}
+
+/**
+ * Add expected-value signals.
+ */
+function addExpectedValueSignals(
+  expectedRecoveryAmount: number,
+  amount: number,
+  currency: string,
+  signals: string[],
+): void {
+  signals.push(
+    `Expected recovery value: ${expectedRecoveryAmount} ${currency}`,
+  );
+
+  const expectedValueRatio =
+    amount > 0
+      ? expectedRecoveryAmount / amount
+      : 0;
+
+  signals.push(
+    `Expected recovery ratio: ${Math.round(
+      expectedValueRatio * 100,
+    )}%`,
+  );
+}
+
+/**
+ * Main Recovery Intelligence 2.0 decision function.
+ *
+ * Safety priority:
+ *
+ * 1. Invalid input -> ESCALATE
  * 2. Retry limit reached -> STOP
- * 3. Clearly non-retryable failure -> STOP
- * 4. Clearly temporary failure -> RETRY
+ * 3. Non-retryable failure -> STOP
+ * 4. Retryable failure -> RETRY
  * 5. Unknown failure -> ESCALATE
  *
- * This ordering is intentional:
- * safety boundaries always take priority over
- * recovery optimization.
+ * Optimization signals are only applied after safety checks
+ * have established that the category is safe to optimize.
  */
 export function decideRecoveryAction(
   input: RecoveryDecisionInput,
@@ -368,10 +487,10 @@ export function decideRecoveryAction(
   const signals: string[] = [];
 
   /*
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
    * SAFETY CHECK 1
    * Validate essential input.
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
    */
 
   if (
@@ -388,6 +507,8 @@ export function decideRecoveryAction(
       recoveryProbability: 0,
       expectedRecoveryAmount: 0,
       riskLevel: "HIGH",
+      recoveryStrategy: "MANUAL_REVIEW",
+      recoveryPriority: "HIGH",
       reason:
         "Recovery cannot be automated because required payment data is incomplete or invalid.",
       signals: [
@@ -400,9 +521,9 @@ export function decideRecoveryAction(
   }
 
   /*
-   * --------------------------------------------------------
-   * SIGNALS
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
+   * BASE SIGNALS
+   * ----------------------------------------------------------
    */
 
   signals.push(
@@ -428,10 +549,10 @@ export function decideRecoveryAction(
   );
 
   /*
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
    * SAFETY CHECK 2
-   * Enforce bounded retry policy.
-   * --------------------------------------------------------
+   * Bounded retry policy.
+   * ----------------------------------------------------------
    */
 
   if (
@@ -447,34 +568,46 @@ export function decideRecoveryAction(
     );
 
     const recoveryScore = 5;
+
     const recoveryProbability =
       scoreToProbability(
         recoveryScore,
       );
+
+    const expectedRecoveryAmount =
+      calculateExpectedRecovery(
+        amount,
+        recoveryProbability,
+      );
+
+    addExpectedValueSignals(
+      expectedRecoveryAmount,
+      amount,
+      currency,
+      signals,
+    );
 
     return {
       action: "STOP",
       confidence: 0.99,
       recoveryScore,
       recoveryProbability,
-      expectedRecoveryAmount:
-        calculateExpectedRecovery(
-          amount,
-          recoveryProbability,
-        ),
+      expectedRecoveryAmount,
       riskLevel: "HIGH",
+      recoveryStrategy: "STOP_RECOVERY",
+      recoveryPriority: "LOW",
       reason:
-        "RayFlow stopped automated recovery because the retry limit has been reached.",
+        "RayFlow stopped automated recovery because the retry limit has been reached and further attempts would violate the recovery safety policy.",
       signals,
       automated: false,
     };
   }
 
   /*
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
    * DECISION 1
-   * Known non-retryable failure.
-   * --------------------------------------------------------
+   * KNOWN NON-RETRYABLE FAILURE
+   * ----------------------------------------------------------
    */
 
   if (
@@ -494,8 +627,8 @@ export function decideRecoveryAction(
     );
 
     /*
-     * Attempt history makes an already non-retryable
-     * failure even less attractive for recovery.
+     * Keep history intelligence for explainability,
+     * but never allow it to turn a STOP into RETRY.
      */
     recoveryScore =
       applyAttemptHistoryAdjustment(
@@ -503,6 +636,11 @@ export function decideRecoveryAction(
         previousFailedAttempts,
         signals,
       );
+
+    /*
+     * Payment-method and amount signals are intentionally
+     * NOT allowed to override the safety classification.
+     */
 
     recoveryScore = clamp(
       recoveryScore,
@@ -515,17 +653,32 @@ export function decideRecoveryAction(
         recoveryScore,
       );
 
+    const expectedRecoveryAmount =
+      calculateExpectedRecovery(
+        amount,
+        recoveryProbability,
+      );
+
+    addExpectedValueSignals(
+      expectedRecoveryAmount,
+      amount,
+      currency,
+      signals,
+    );
+
+    signals.push(
+      "Safety policy overrides recovery optimization for this failure",
+    );
+
     return {
       action: "STOP",
       confidence: 0.97,
       recoveryScore,
       recoveryProbability,
-      expectedRecoveryAmount:
-        calculateExpectedRecovery(
-          amount,
-          recoveryProbability,
-        ),
+      expectedRecoveryAmount,
       riskLevel: "HIGH",
+      recoveryStrategy: "STOP_RECOVERY",
+      recoveryPriority: "LOW",
       reason:
         "RayFlow stopped recovery because the failure indicates a condition that is unlikely to be resolved by an immediate retry.",
       signals,
@@ -534,10 +687,10 @@ export function decideRecoveryAction(
   }
 
   /*
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
    * DECISION 2
-   * Known temporary/retryable failure.
-   * --------------------------------------------------------
+   * KNOWN TEMPORARY / RETRYABLE FAILURE
+   * ----------------------------------------------------------
    */
 
   if (
@@ -553,7 +706,7 @@ export function decideRecoveryAction(
     );
 
     /*
-     * First/previous failure history.
+     * Attempt history.
      */
     recoveryScore =
       applyAttemptHistoryAdjustment(
@@ -563,8 +716,7 @@ export function decideRecoveryAction(
       );
 
     /*
-     * Payment method provides a modest
-     * contextual signal.
+     * Payment method.
      */
     recoveryScore =
       applyPaymentMethodAdjustment(
@@ -574,9 +726,17 @@ export function decideRecoveryAction(
       );
 
     /*
-     * A retryable failure with the automated
-     * retry limit still available receives a
-     * strong recovery opportunity score.
+     * Transaction value.
+     */
+    recoveryScore =
+      applyAmountAdjustment(
+        recoveryScore,
+        amount,
+        signals,
+      );
+
+    /*
+     * Keep automated recovery inside a bounded range.
      */
     recoveryScore = clamp(
       recoveryScore,
@@ -589,8 +749,21 @@ export function decideRecoveryAction(
         recoveryScore,
       );
 
+    const expectedRecoveryAmount =
+      calculateExpectedRecovery(
+        amount,
+        recoveryProbability,
+      );
+
     signals.push(
       "Retry remains within the automated recovery limit",
+    );
+
+    addExpectedValueSignals(
+      expectedRecoveryAmount,
+      amount,
+      currency,
+      signals,
     );
 
     signals.push(
@@ -603,21 +776,46 @@ export function decideRecoveryAction(
       )}%`,
     );
 
+    const riskLevel =
+      getRiskLevel(
+        "RETRY",
+        recoveryScore,
+      );
+
+    const recoveryStrategy =
+      getRecoveryStrategy(
+        "RETRY",
+      );
+
+    const recoveryPriority =
+      getRecoveryPriority(
+        "RETRY",
+        recoveryScore,
+        expectedRecoveryAmount,
+        amount,
+      );
+
+    signals.push(
+      `Recovery risk: ${riskLevel}`,
+    );
+
+    signals.push(
+      `Recovery strategy: ${recoveryStrategy}`,
+    );
+
+    signals.push(
+      `Recovery priority: ${recoveryPriority}`,
+    );
+
     return {
       action: "RETRY",
       confidence: 0.94,
       recoveryScore,
       recoveryProbability,
-      expectedRecoveryAmount:
-        calculateExpectedRecovery(
-          amount,
-          recoveryProbability,
-        ),
-      riskLevel:
-        getRiskLevel(
-          "RETRY",
-          recoveryScore,
-        ),
+      expectedRecoveryAmount,
+      riskLevel,
+      recoveryStrategy,
+      recoveryPriority,
       reason:
         "RayFlow identified a temporary provider or network failure and recommends one bounded retry because the recovery opportunity remains strong.",
       signals,
@@ -626,13 +824,14 @@ export function decideRecoveryAction(
   }
 
   /*
-   * --------------------------------------------------------
+   * ----------------------------------------------------------
    * DECISION 3
-   * Unknown failure.
-   * --------------------------------------------------------
+   * UNKNOWN FAILURE
+   * ----------------------------------------------------------
    *
-   * We deliberately do NOT retry unknown failures.
-   * This is important for safe automation.
+   * Unknown failures are deliberately NOT retried.
+   * Safe automation requires sufficient classification
+   * confidence before attempting another payment.
    */
 
   signals.push(
@@ -655,6 +854,40 @@ export function decideRecoveryAction(
       recoveryScore,
     );
 
+  const expectedRecoveryAmount =
+    calculateExpectedRecovery(
+      amount,
+      recoveryProbability,
+    );
+
+  addExpectedValueSignals(
+    expectedRecoveryAmount,
+    amount,
+    currency,
+    signals,
+  );
+
+  const recoveryStrategy =
+    getRecoveryStrategy(
+      "ESCALATE",
+    );
+
+  const recoveryPriority =
+    getRecoveryPriority(
+      "ESCALATE",
+      recoveryScore,
+      expectedRecoveryAmount,
+      amount,
+    );
+
+  signals.push(
+    `Recovery strategy: ${recoveryStrategy}`,
+  );
+
+  signals.push(
+    `Recovery priority: ${recoveryPriority}`,
+  );
+
   return {
     action: "ESCALATE",
     confidence: clampConfidence(
@@ -662,12 +895,10 @@ export function decideRecoveryAction(
     ),
     recoveryScore,
     recoveryProbability,
-    expectedRecoveryAmount:
-      calculateExpectedRecovery(
-        amount,
-        recoveryProbability,
-      ),
+    expectedRecoveryAmount,
     riskLevel: "MEDIUM",
+    recoveryStrategy,
+    recoveryPriority,
     reason:
       "RayFlow could not safely classify the failure, so automated recovery was blocked and the case should be reviewed.",
     signals,
@@ -676,8 +907,8 @@ export function decideRecoveryAction(
 }
 
 /**
- * Convenience helper for callers that only need
- * to know whether an automated retry is allowed.
+ * Convenience helper for callers that only need to know
+ * whether automated retry execution is allowed.
  */
 export function canAutomateRecovery(
   decision: RecoveryDecision,
@@ -689,10 +920,7 @@ export function canAutomateRecovery(
 }
 
 /**
- * Expose the configured retry limit for:
- * - tests
- * - dashboards
- * - documentation
+ * Expose configured retry limit.
  */
 export function getMaxAutomatedRetries(): number {
   return MAX_AUTOMATED_RETRIES;
