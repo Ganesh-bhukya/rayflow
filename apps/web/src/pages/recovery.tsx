@@ -704,8 +704,11 @@ export default function Recovery() {
       : null;
 
   const latestIntelligenceDecision =
-    intelligence?.currentDecisions?.length
-      ? intelligence.currentDecisions[0]
+    latestDecision && intelligence?.currentDecisions?.length
+      ? intelligence.currentDecisions.find(
+          (decision) =>
+            decision.orderId === latestDecision.orderId,
+        ) ?? null
       : null;
 
   const decisionStats = useMemo(() => {
