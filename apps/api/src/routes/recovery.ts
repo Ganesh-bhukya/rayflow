@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { randomUUID } from "crypto";
 import { getPool } from "../config/database.js";
 import {
@@ -1603,4 +1603,215 @@ router.get("/intelligence", async (_req, res) => {
   }
 });
 
+/*
+|--------------------------------------------------------------------------
+| POST /recovery/simulate
+|--------------------------------------------------------------------------
+| Read-only recovery simulation.
+|
+| Evaluates the same current failed-payment population and the same
+| bounded decision engine used by the real recovery workflow, but:
+|
+| - does not change payment state
+| - does not create transactions
+| - does not write audit events
+| - does not move money
+|--------------------------------------------------------------------------
+*/
+router.post("/simulate", async (_req, res) => {
+  const pool = getPool();
+
+  try {
+    const failedPaymentsResult = await pool.query(`
+      WITH attempt_history AS (
+        SELECT
+          pa.id AS attempt_id,
+          pa.order_id,
+          pa.payment_method,
+          pa.status,
+          pa.failure_code,
+          pa.created_at,
+
+          COUNT(*) FILTER (
+            WHERE pa.status = 'failed'
+          ) OVER (
+            PARTITION BY pa.order_id
+          ) AS total_failed_attempts,
+
+          ROW_NUMBER() OVER (
+            PARTITION BY pa.order_id
+            ORDER BY pa.created_at DESC
+          ) AS row_number
+
+        FROM public.payment_attempts pa
+      )
+
+      SELECT
+        ah.attempt_id,
+        ah.order_id,
+        ah.payment_method,
+        ah.status,
+        ah.failure_code,
+        ah.created_at,
+
+        GREATEST(
+          ah.total_failed_attempts - 1,
+          0
+        )::int AS previous_failed_attempts,
+
+        po.amount,
+        po.currency,
+        po.status AS order_status
+
+      FROM attempt_history ah
+
+      INNER JOIN public.payment_orders po
+        ON po.id = ah.order_id
+
+      WHERE
+        ah.row_number = 1
+        AND ah.status = 'failed'
+        AND po.status <> 'paid'
+
+      ORDER BY ah.created_at DESC
+    `);
+
+    const actionBreakdown: Record<
+      RecoveryAction,
+      {
+        cases: number;
+        amount: number;
+      }
+    > = {
+      RETRY: {
+        cases: 0,
+        amount: 0,
+      },
+      STOP: {
+        cases: 0,
+        amount: 0,
+      },
+      ESCALATE: {
+        cases: 0,
+        amount: 0,
+      },
+    };
+
+    const decisions = failedPaymentsResult.rows.map(
+      (payment) => {
+        const previousFailedAttempts = Number(
+          payment.previous_failed_attempts ?? 0,
+        );
+
+        const decision = decideRecoveryAction({
+          orderId: payment.order_id,
+          amount: Number(payment.amount),
+          currency: String(payment.currency),
+          paymentMethod: String(payment.payment_method),
+          failureCode: payment.failure_code,
+          previousFailedAttempts,
+        });
+
+        const amount = Number(payment.amount);
+
+        actionBreakdown[decision.action].cases += 1;
+        actionBreakdown[decision.action].amount += amount;
+
+        return {
+          orderId: payment.order_id,
+          attemptId: payment.attempt_id,
+          amount,
+          currency: payment.currency,
+          paymentMethod: payment.payment_method,
+          failureCode: payment.failure_code,
+          createdAt: payment.created_at,
+          previousFailedAttempts,
+
+          action: decision.action,
+          confidence: decision.confidence,
+          automated: decision.automated,
+          reason: decision.reason,
+          signals: decision.signals,
+        };
+      },
+    );
+
+    const revenueAtRisk = decisions.reduce(
+      (total, decision) =>
+        total + decision.amount,
+      0,
+    );
+
+    const automatedRecoveryOpportunity =
+      actionBreakdown.RETRY.amount;
+
+    const stoppedAmount =
+      actionBreakdown.STOP.amount;
+
+    const escalationAmount =
+      actionBreakdown.ESCALATE.amount;
+
+    const projectedRecoveryOpportunity =
+      failedPaymentsResult.rows.reduce(
+        (total, payment) => {
+          const previousFailedAttempts = Number(
+            payment.previous_failed_attempts ?? 0,
+          );
+
+          const decision = decideRecoveryAction({
+            orderId: payment.order_id,
+            amount: Number(payment.amount),
+            currency: String(payment.currency),
+            paymentMethod: String(payment.payment_method),
+            failureCode: payment.failure_code,
+            previousFailedAttempts,
+          });
+
+          if (decision.action !== "RETRY") {
+            return total;
+          }
+
+          return (
+            total +
+            decision.expectedRecoveryAmount
+          );
+        },
+        0,
+      );
+
+    return res.status(200).json({
+      status: "ok",
+
+      simulation: {
+        simulatedAt: new Date().toISOString(),
+        readOnly: true,
+        executionPerformed: false,
+      },
+
+      summary: {
+        recoveryCases: decisions.length,
+        revenueAtRisk,
+        automatedRecoveryOpportunity,
+        stoppedAmount,
+        escalationAmount,
+        projectedRecoveryOpportunity,
+      },
+
+      actionBreakdown,
+
+      decisions,
+    });
+  } catch (error) {
+    console.error(
+      "Recovery simulation error:",
+      error,
+    );
+
+    return res.status(500).json({
+      status: "error",
+      message:
+        "Unable to run recovery simulation.",
+    });
+  }
+});
 export default router;
